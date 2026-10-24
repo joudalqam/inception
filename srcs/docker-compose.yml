@@ -14,7 +14,7 @@ services:
     networks:
       - inception
     healthcheck:
-      test: ["CMD", "sh", "-c", "mariadb --protocol=TCP -h127.0.0.1 --connect-timeout=2 -uroot -p\"$(cat /run/secrets/mysql_root_password)\" -e \"SELECT 1;\""]
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$(cat /run/secrets/mysql_password)\" mariadb --no-defaults --protocol=TCP -h127.0.0.1 --connect-timeout=2 -u\"$$MYSQL_USER\" \"$$MYSQL_DATABASE\" -e 'SELECT 1;'"]
       interval: 10s
       timeout: 5s
       retries: 3

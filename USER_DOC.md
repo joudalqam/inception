@@ -65,7 +65,7 @@ curl -kI https://jalqam.42.fr
 MariaDB should be healthy, all containers should remain running without repeated
 restarts, and the site and administrator login should work. `curl -k` accepts the
 self-signed development certificate. MariaDB's health check runs an authenticated
-SQL query over TCP; WordPress also checks its own database account before setup.
+SQL query over TCP using the WordPress database account; WordPress also checks its own database account before setup.
 
 For storage errors, follow the developer guide rather than deleting data. For
 database failures, check MariaDB logs and the configured account/secret files.

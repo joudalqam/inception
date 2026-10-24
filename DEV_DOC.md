@@ -20,10 +20,9 @@ If `srcs/.env` does not exist, copy `srcs/.env.example` to it. Configure:
 
 Run `make secrets` to generate missing passwords. Existing nonempty files are
 preserved and restricted to mode 600; empty files cause an error. Secret files
-contain only the password, not username/password pairs. MariaDB currently
-interpolates database credentials in initialization SQL: use simple alphanumeric
-identifiers and avoid single quotes/backslashes in database passwords. Generated
-hexadecimal passwords meet that constraint.
+contain only the password, not username/password pairs. MariaDB quotes SQL values and database identifiers during initialization, including
+passwords containing quotes or backslashes. Existing database credentials are not
+reset when secret files change.
 
 Add `VM_IP jalqam.42.fr` to the browser machine's hosts file. Substitute the
 actual VM IP and learner domain. All source configuration is under `srcs/`;
@@ -137,8 +136,13 @@ pruning, or pull a helper image for cleanup.
 MariaDB checks its temporary initialization server at most 30 times, limits each
 ping to two seconds, and detects process exit. Signal/exit handlers stop and reap
 the temporary server if setup fails. The final foreground server accepts TCP
-connections. The Compose health check uses authenticated TCP SQL so the
-socket-only initialization server cannot satisfy it prematurely.
+connections. Existing databases start without repeating root authentication or
+account initialization. A `.initializing` marker allows interrupted new setups to
+retry; it is removed only after successful setup. Databases created by older
+versions without this marker are treated as existing and are not reconfigured.
+The Compose health check uses the WordPress database account over TCP, so the
+socket-only initialization server cannot satisfy it prematurely. The check has
+a 120-second startup grace period.
 
 WordPress limits database readiness to 60 SQL attempts, each with a three-second
 command timeout and one-second retry delays. WP-CLI generates missing PHP
@@ -174,3 +178,25 @@ swap file. `.gitignore` prevents adding new matching files but cannot untrack
 existing ones or erase history. Remove credentials from the submission and
 rotate exposed values before publishing; coordinate database and WordPress
 password changes with the existing installation.
+
+## Root access denied on restart
+
+The entrypoint now follows the initialization-only pattern in the
+[reference implementation](https://github.com/Abusalah0/inception_42/blob/master/srcs/requirements/mariadb/tools/mariadb-entrypoint.sh).
+Root access is used for new database setup, not required to start an existing
+volume. Readiness checks authenticate with the WordPress database account.
+Rebuild and recreate the services without deleting their volumes:
+
+```sh
+docker compose -f srcs/docker-compose.yml up -d --build
+docker compose -f srcs/docker-compose.yml ps
+docker compose -f srcs/docker-compose.yml logs --tail=80 mariadb wordpress
+```
+
+This does not reset an existing root password. If the saved database and secret
+files have different passwords, restore the matching original secrets or perform
+a deliberate password recovery. A healthy database still requires the application
+secret to match the saved WordPress database account. For an old partially
+initialized database, inspect its accounts before marking it for initialization;
+do not delete the volume to clear an authentication error. A failed new setup
+retains `.initializing` and reports root authentication failure explicitly.
