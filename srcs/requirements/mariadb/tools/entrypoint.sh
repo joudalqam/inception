@@ -15,10 +15,21 @@ fi
 sock=/run/mysqld/mysqld.sock
 mysqld --user=mysql --skip-networking --socket="$sock" &
 tmp_pid=$!
-trap 'kill "$tmp_pid" 2>/dev/null || true' EXIT HUP INT TERM
+cleanup() {
+    kill "$tmp_pid" 2>/dev/null || true
+    wait "$tmp_pid" 2>/dev/null || true
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 i=0
-until mariadb-admin --socket="$sock" ping >/dev/null 2>&1; do
+until timeout 2 mariadb-admin --socket="$sock" ping >/dev/null 2>&1; do
+    if ! kill -0 "$tmp_pid" 2>/dev/null; then
+        echo "mariadb: temporary server exited unexpectedly" >&2
+        exit 1
+    fi
     i=$((i + 1))
     if [ "$i" -ge 30 ]; then
         echo "mariadb: temporary server failed to start" >&2

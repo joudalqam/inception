@@ -4,7 +4,7 @@ ARG WORDPRESS_VERSION=6.8.2
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-       ca-certificates curl mariadb-client php8.2-fpm php8.2-mysql php8.2-curl \
+       ca-certificates curl mariadb-client php8.2-cli php8.2-fpm php8.2-mysql php8.2-curl \
        php8.2-gd php8.2-intl php8.2-mbstring php8.2-xml php8.2-zip \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /usr/src/wordpress \

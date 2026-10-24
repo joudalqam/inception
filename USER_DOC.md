@@ -1,101 +1,72 @@
+# User documentation
 
-# Inception User Documentation
+## Services and access
 
-## Services Overview
+NGINX provides HTTPS on port 443; WordPress provides publishing and account
+management through PHP-FPM; MariaDB stores users, posts, and settings. The
+database and PHP-FPM have no published host ports.
 
-The infrastructure consists of three services connected through a private Docker network called `inception`:
+Map `jalqam.42.fr` to the VM's address in the browser machine's hosts file.
+Visit `https://jalqam.42.fr` for the website and
+`https://jalqam.42.fr/wp-admin/` for administration. Use the domain in
+`srcs/.env` if customized. NGINX creates a self-signed development certificate,
+so the browser requires you to trust it. HTTP on port 80 is not provided.
 
-- **NGINX:** Provides the HTTPS entry point through host port `443`. It serves the WordPress website files and forwards PHP requests to PHP-FPM.
-- **WordPress:** Runs WordPress with PHP-FPM, listening on container port `9000`. This service does not expose a port directly to the host.
-- **MariaDB:** Stores and manages the WordPress database. It is accessible only through the internal Docker network and does not publish a host port.
+## Start and stop
 
-NGINX is the only service exposed externally. WordPress and MariaDB communicate internally without direct access from outside the Docker network.
+Complete the one-time setup in [DEV_DOC.md](DEV_DOC.md), then use:
 
-## Starting and Stopping the Project
-
-Open a terminal at the root of the repository and prepare the environment:
-
-```sh id="t8d1sq"
-cp srcs/.env.example srcs/.env
-# Check HOST_DATA_PATH in srcs/.env before starting.
-make
+```sh
+make           # Check storage, generate missing secrets, build, and start
+make ps        # Show service status
+make logs      # Follow logs
+make stop      # Stop containers
+make start     # Start existing containers
+make down      # Remove containers/network while preserving data
+make restart   # Recreate services while preserving data
 ```
 
-The following commands can be used to control the infrastructure:
+Use `make` after `make down`. First startup takes longer while images and the
+website are prepared. `make clean` also preserves data, but `make fclean`
+deletes the database and website volumes. Local secrets are preserved.
 
-```sh id="u6b0q9"
-make up       # Build the images and start the services
-make ps       # Display the current service status
-make logs     # View logs from the running services
-make down     # Stop and remove the containers
-make restart  # Restart the application stack
-```
+## Credentials
 
-During the initial launch, startup may take longer because the required images and WordPress files need to be prepared.
+`make secrets` creates missing files without replacing existing passwords:
 
-The project uses a self-signed TLS certificate for development. When accessing the website for the first time, your browser will display a certificate warning. Verify that you are accessing your own development environment before proceeding.
+- `secrets/db_root_password.txt`: MariaDB root password.
+- `secrets/db_password.txt`: WordPress database account password.
+- `secrets/credentials.txt`: WordPress administrator password only.
+- `secrets/wp_user_password.txt`: WordPress author password.
 
-## Accessing the Website and Administration Panel
+The administrator username is `WP_ADMIN_USER` in `srcs/.env`; the author is
+`WP_USER` (default `author`). Keep the usernames distinct. The administrator
+username must not contain `admin` in any capitalization.
 
-Open the website using the domain configured in `srcs/.env`:
+Use WordPress's Users page to change existing account passwords. Editing a
+secret file does not reset existing WordPress accounts. Database password
+changes also require updating the MariaDB account and persisted `wp-config.php`.
+Coordinate those changes instead of replacing secrets and restarting blindly.
 
-[https://jalqam.42.fr](https://jalqam.42.fr)
+Keep secrets and local environment files private. Ignore rules prevent new
+secret files from being added normally, but do not remove files already tracked
+in Git. This supplied repository contains tracked secret files; those require
+separate remediation before submission.
 
-The actual address depends on the value of `DOMAIN_NAME`. Ensure that the domain points to your virtual machine's IP address.
+## Check health
 
-During the initial setup, the project initializes the WordPress website and creates the administrator account.
-
-To access the administration dashboard, visit:
-
-[https://jalqam.42.fr/wp-admin/](https://jalqam.42.fr/wp-admin/)
-
-Replace the domain in this URL if `DOMAIN_NAME` is configured differently.
-
-The administrator username is defined by `WP_ADMIN_USER` in `srcs/.env`. The corresponding generated password is stored locally in `secrets/credentials.txt`.
-
-## Managing Credentials
-
-Use the following command to generate the required local secret files:
-
-```sh id="5l7f6f"
-make secrets
-```
-
-The command creates the following files:
-
-- `secrets/db_root_password.txt`: Contains the MariaDB root account password.
-- `secrets/db_password.txt`: Contains the password used by the WordPress database account.
-- `secrets/credentials.txt`: Contains the WordPress administrator credentials.
-
-These files are excluded from Git and are provided to the appropriate services as Docker secrets, accessible under `/run/secrets/`.
-
-**Never commit or publicly share secret files.** Do not copy their contents into the `.env` file, Dockerfiles, documentation, or public logs.
-
-The `make fclean` command removes generated secret files along with other project resources. Make sure you understand its cleanup behavior before running it.
-
-The `srcs/.env` file is intended for ordinary configuration values, such as the domain name, database name, database username, and host storage path. Local override files, including `srcs/.env.local`, are also excluded from Git when configured in the repository's ignore rules.
-
-## Checking Service Health
-
-MariaDB uses a Docker Compose health check that runs `mariadb-admin ping` with the root password supplied through a secret.
-
-WordPress waits for MariaDB to become healthy and performs an additional database readiness check during initialization. NGINX starts after the WordPress service has been created and provides the HTTPS endpoint.
-
-To check the current state of the services, run:
-
-```sh id="6a72dr"
+```sh
 make ps
-docker compose -f srcs/docker-compose.yml ps
+docker compose -f srcs/docker-compose.yml logs --tail=100 mariadb wordpress nginx
+docker compose -f srcs/docker-compose.yml exec wordpress wp core is-installed --path=/var/www/html --allow-root
+curl -kI https://jalqam.42.fr
 ```
 
-To investigate startup problems or other errors, inspect the service logs:
+MariaDB should be healthy, all containers should remain running without repeated
+restarts, and the site and administrator login should work. `curl -k` accepts the
+self-signed development certificate. MariaDB's health check runs an authenticated
+SQL query over TCP; WordPress also checks its own database account before setup.
 
-```sh id="o5w2lr"
-make logs
-docker compose -f srcs/docker-compose.yml logs <service>
-```
-
-Replace `<service>` with the name of the affected service, such as `nginx`, `wordpress`, or `mariadb`.
-
-Reviewing the logs and container status is the first step when troubleshooting connection failures, database initialization problems, or services that fail to start.
-
+For storage errors, follow the developer guide rather than deleting data. For
+database failures, check MariaDB logs and the configured account/secret files.
+Do not publish secrets or diagnostic output containing passwords.

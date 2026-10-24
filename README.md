@@ -1,86 +1,82 @@
-
-*This project was developed as part of the 42 curriculum by jalqam.*
+*This project has been created as part of the 42 curriculum by jalqam.*
 
 # Inception
 
 ## Description
 
-Inception is a compact and secure Docker-based environment designed to host WordPress. The infrastructure consists of three custom images based on Debian Bookworm:
-
-- **NGINX** serves as the sole external access point, handling HTTPS connections on port 443.
-- **WordPress** uses PHP-FPM and operates within the internal Docker network without publishing a host port.
-- **MariaDB** provides database services for WordPress and remains inaccessible through published host ports.
-
-All services communicate through a dedicated Docker bridge network named `inception`. Secure connections support TLSv1.2 and TLSv1.3 only. Sensitive database credentials are managed using Docker secrets rather than being embedded in image definitions or committed to the repository.
+This project hosts WordPress using three custom Debian Bookworm images on a
+Linux virtual machine. NGINX accepts HTTPS connections on port 443, WordPress
+runs through PHP-FPM, and MariaDB stores the database. The services communicate
+on the `inception` bridge network. Only NGINX publishes a host port, and it
+allows TLS 1.2 and 1.3.
 
 ## Instructions
 
-Install Docker Engine, Docker Compose support, and OpenSSL before launching the project. Then run:
+Install Docker Engine, Docker Compose v2, Make, and OpenSSL on the VM. Follow
+[DEV_DOC.md](DEV_DOC.md) to configure Docker storage before first startup or
+migrate existing data. Copy `srcs/.env.example` to `srcs/.env` only if you do not
+already have a local configuration. Set the learner domain and storage path,
+map `jalqam.42.fr` to the VM's IP on the browser machine, then run `make`.
+
+`make` checks storage, generates missing secret files without replacing existing
+passwords, builds the images, and starts the services. NGINX generates its
+self-signed certificate inside its container. Open `https://jalqam.42.fr` and
+trust the local development certificate. Daily operation is explained in
+[USER_DOC.md](USER_DOC.md).
 
 ```sh
-cp srcs/.env.example srcs/.env
-# Modify HOST_DATA_PATH in srcs/.env if necessary.
-make
+make build      # Build images only
+make up         # Check storage, prepare secrets, build, and start
+make stop       # Stop existing containers
+make start      # Start existing containers
+make restart    # Recreate containers, preserving volumes
+make ps         # Show service status
+make logs       # Follow logs
+make down       # Remove containers/network, preserving volumes
+make clean      # Remove containers/network and project orphan containers
+make fclean     # Delete project containers, volumes, and service images
 ```
 
-The Makefile prepares storage directories, generates local Docker secrets, creates a self-signed development certificate, builds the three service images, and starts the containers.
+`fclean` deletes persistent application data. It preserves local secrets and
+never runs a global Docker prune or removes arbitrary host directories.
 
-Open [https://jalqam.42.fr](https://jalqam.42.fr) in your browser. A security warning is expected because the certificate is self-signed.
+## Project description
 
-Available Makefile commands:
+Each service has a Dockerfile, configuration, and entrypoint under
+`srcs/requirements/`. Compose builds `mariadb:inception`, `wordpress:inception`,
+and `nginx:inception` locally; it does not pull prebuilt service images. Each
+entrypoint finishes by executing the foreground daemon as PID 1.
 
-```sh
-make build       # Build images without starting containers
-make up          # Build and start the services
-make ps          # Display container status
-make logs        # Follow service logs
-make down        # Stop and remove containers
-make clean       # Remove stopped containers
-make fclean      # Remove containers, named volumes, secrets, and certificates
-```
+MariaDB initializes its database and application account. WordPress checks
+application-account database access, creates missing configuration with WP-CLI,
+completes installation, and creates a separate author account. It synchronizes
+saved site URLs to HTTPS on every startup. NGINX passes the HTTPS status to
+PHP-FPM. Startup failures stop initialization instead of serving an incomplete
+installation. Services restart after crashes unless explicitly stopped.
+
+The two ordinary named volumes have no bind driver options. Docker's `data-root`
+must match `HOST_DATA_PATH` (normally `/home/jalqam/data`); see the developer guide
+for setup and migration. NGINX reads the WordPress volume without write access.
+
+| Comparison | Project choice |
+| --- | --- |
+| Virtual machines vs Docker | A VM has a guest kernel; containers share their host kernel and isolate processes. This project runs Docker inside the required VM. |
+| Secrets vs environment variables | Environment variables hold ordinary configuration. Passwords are supplied through mounted Docker secret files, which must still be protected on the host. |
+| Docker network vs host network | The bridge network provides service-name resolution and separate container networking. Host networking shares the host network namespace and is not used. |
+| Docker volumes vs bind mounts | Named volumes are managed by Docker and outlive containers. Bind mounts reference chosen host paths directly. This project uses ordinary named volumes with no bind options. |
 
 ## Resources
 
-
-- [Docker overview](https://docs.docker.com/get-started/overview/)
 - [Docker volumes](https://docs.docker.com/engine/storage/volumes/)
-- [Debian documentation](https://www.debian.org/doc/)
+- [Docker daemon configuration](https://docs.docker.com/engine/daemon/)
+- [Docker Compose](https://docs.docker.com/compose/)
+- [NGINX documentation](https://nginx.org/en/docs/)
+- [WP-CLI commands](https://developer.wordpress.org/cli/commands/)
 - [MariaDB documentation](https://mariadb.com/docs/)
 - [PHP-FPM documentation](https://www.php.net/manual/en/install.fpm.php)
-- [NGINX documentation](https://nginx.org/en/docs/)
-- [WordPress documentation](https://developer.wordpress.org/)
 
-- [WILL CONTAINER REPLACE HYPERVISOR](https://medium.com/@zybisys/will-container-replace-hypervisor-35015957a624) (Medium, Zybisys)
-
-## AI Usage
-
-AI tools were used to support brainstorming, troubleshooting, and configuration consistency. The project author remained responsible for implementation, verification, and understanding the codebase.
-
-Testing procedures covering container behavior, TLS configuration, restart policies, persistent storage, and volume bindings are documented in [GUIDELINE_TESTING.md](GUIDELINE_TESTING.md).
-
-## Technical Comparisons
-
-### Virtual Machines vs. Docker
-
-Virtual machines emulate hardware and run separate guest operating systems, each with its own kernel. They provide strong isolation but generally require more resources and take longer to start.
-
-Docker containers share the host operating system's kernel while isolating processes, filesystems, networks, and resource usage. They are typically lightweight and start quickly, although their isolation depends on the host kernel and container runtime configuration.
-
-### Secrets vs. Environment Variables
-
-Environment variables are useful for ordinary configuration, such as `DOMAIN_NAME`, database names, and usernames. However, depending on the environment, they may be exposed through process inspection, Compose output, logs, or diagnostic tools.
-
-Docker secrets provide a file-based method for supplying sensitive values through `/run/secrets/`. This project uses secrets for database passwords, avoiding their inclusion in Dockerfiles, image layers, and standard environment-variable listings.
-
-### Docker Network vs. Host Network
-
-A user-defined Docker bridge network enables private communication between services through Docker's internal DNS while controlling host port exposure.
-
-In this project, WordPress connects to MariaDB through `mariadb:3306`, while NGINX communicates with PHP-FPM through `wordpress:9000`. Host networking removes the separate container network namespace and its associated network isolation, so it is not used.
-
-### Docker Volumes vs. Bind Mounts
-
-Docker-managed named volumes preserve application data independently of container lifecycles. Bind mounts connect specific host directories to paths inside containers, making the configuration more dependent on the host filesystem layout.
-
-This project uses named volumes for MariaDB and WordPress data, with the local volume driver configured to store the data under `${HOST_DATA_PATH}/mariadb` and `${HOST_DATA_PATH}/wordpress`.
-
+AI assisted with the startup review and fixes, WordPress configuration and user
+creation, readiness checks, certificate storage, volume configuration, image
+tags, Makefile cleanup, documentation, and simulated validation. The learner
+must review, understand, and test these changes on the evaluation VM. Mock and
+static checks do not establish that the complete infrastructure works live.
