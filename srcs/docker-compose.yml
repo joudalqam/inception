@@ -1,0 +1,81 @@
+services:
+  mariadb:
+    build: ./requirements/mariadb
+    image: inception-mariadb
+    container_name: mariadb
+    restart: unless-stopped
+    env_file: ./.env
+    secrets:
+      - mysql_root_password
+      - mysql_password
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - inception
+    healthcheck:
+      test: ["CMD", "sh", "-c", "mariadb -uroot -p\"$(cat /run/secrets/mysql_root_password)\" -e \"SELECT 1;\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  wordpress:
+    build: ./requirements/wordpress
+    image: inception-wordpress
+    container_name: wordpress
+    restart: unless-stopped
+    env_file: ./.env
+    secrets:
+      - mysql_password
+      - wp_admin_password
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    volumes:
+      - wordpress_data:/var/www/html
+    networks:
+      - inception
+
+  nginx:
+    build: ./requirements/nginx
+    image: inception-nginx
+    container_name: nginx
+    restart: unless-stopped
+    env_file: ./.env
+    depends_on:
+      - wordpress
+    ports:
+      - "443:443"
+    volumes:
+      - wordpress_data:/var/www/html:ro
+      - ./certs:/etc/nginx/certs:ro
+    networks:
+      - inception
+
+volumes:
+  mariadb_data:
+    name: inception_mariadb_data
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${HOST_DATA_PATH}/mariadb
+  wordpress_data:
+    name: inception_wordpress_data
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${HOST_DATA_PATH}/wordpress
+
+networks:
+  inception:
+    name: inception
+    driver: bridge
+
+secrets:
+  mysql_root_password:
+    file: ../secrets/db_root_password.txt
+  mysql_password:
+    file: ../secrets/db_password.txt
+  wp_admin_password:
+    file: ../secrets/credentials.txt
